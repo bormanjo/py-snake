@@ -61,43 +61,44 @@ class Game(object):
         self.player = None
         self.food = None
         self.speed = None
+        self.gameover = None
+
+        self.log = logging.getLogger(self.__class__.__name__)
 
     def start(self):
         # Start Loop
         while self._prompt_newgame():
-            logging.info('Starting new game')
+            self.log.info('Starting new game')
+
             self.board = board.Board(config.board_size)
+
             if self.ai_player:
                 self.player = player.AIPlayer(self.board)
             else:
                 self.player = player.HumanPlayer(self.board)
+
+            self.gameover = False
             self.speed = config.speed
             self.reset_food()
 
             self._loop()
-            logging.info('Game Over')
 
     def _loop(self):
 
         self.running = True
         while self.running:
+            self.log.debug('Loop: Checking key events')
             self._key_events()
+            self.log.debug('Loop: Moving objects')
             self._move()
+            self.log.debug('Loop: Checking game events')
+            self._game_events()
 
-            # Check for gameover events
-            if self.player.is_outside():
-                self.running = False
-                get_gameover_text('Snake hit a wall!').draw(self.screen)
-                continue
-            elif self.player.is_overlap():
-                get_gameover_text('Snake ate itself!').draw(self.screen)
-                self.running = False
+            if self.gameover:
+                self.log.info('Game Over')
                 continue
 
-            self.speed = self.get_speed(self.player.get_score())
-
-            if not self.is_food_set():
-                self.reset_food()
+            self.log.debug('Loop: Drawing objects')
             self._draw()
 
             pygame.display.update()
@@ -111,11 +112,13 @@ class Game(object):
             if event.type == pygame.QUIT:
                 pygame.quit()
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                self.log.info('Pausing game')
                 self.running = pause()
+                self.log.info('Resuming game')
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_i:
                 import pdb; pdb.set_trace()
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_r:
-                logging.info('Restarting game')
+                self.log.info('Restarting game')
                 self.running = False
                 break
 
@@ -128,6 +131,29 @@ class Game(object):
     def _move(self):
         self.player.move()
 
+    def _game_events(self):
+        # Check for gameover events
+        if self.player.is_outside():
+            get_gameover_text('Snake hit a wall!').draw(self.screen)
+            self.running = False
+            self.gameover = True
+            return
+        elif self.player.is_overlap():
+            get_gameover_text('Snake ate itself!').draw(self.screen)
+            self.running = False
+            self.gameover = True
+            return
+
+        # Update speed
+        self.speed = self.get_speed(self.player.get_score())
+
+        # Reset Food
+        if not self.is_food_set():
+            self.log.debug('Food not set, resetting food')
+            self.reset_food()
+        else:
+            self.log.debug('Food still set')
+
     def _draw(self):
         self.board.draw(self.screen)
         self.player.draw(self.screen)
@@ -138,6 +164,7 @@ class Game(object):
         get_score_text(self.player.get_score()).draw(self.screen)
 
     def _prompt_newgame(self):
+        self.log.debug('Prompt newgame')
         position = (config.board_size // 2, config.board_size // 3)
         Text('Start a New Game? [Y/N]', position).draw(self.screen)
         pygame.display.update()
@@ -217,6 +244,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     log_lvl = logging.DEBUG if args.debugging else logging.INFO
-    log_fmt = '[%(asctime)s] %(levelname)s> %(message)s'
+    log_fmt = '[%(asctime)s] %(name)s %(levelname)s> %(message)s'
     logging.basicConfig(format=log_fmt, level=log_lvl)
     main(args.ai_player)

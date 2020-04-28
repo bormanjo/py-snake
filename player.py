@@ -25,6 +25,10 @@ class Player(snake.Snake):
         self.last_key = None
         self.deactiv_key = None
 
+        # Logging Config
+        self.log = logging.getLogger(self.__class__.__name__)
+        self.mv_cnt = 0     # Move counter
+
     def get_spaces(self):
         return [self.board[x, y] for x, y in self.pos]
 
@@ -36,17 +40,22 @@ class Player(snake.Snake):
             self.get_spaces()
             return False
         except IndexError:
-            logging.info('Snake is outside')
+            self.log.info(f'({self.mv_cnt}) Snake is outside')
             return True
 
     def is_overlap(self):
         '''Check if any positions are duplicated (snake eats itself)'''
         if len(self.pos) != len(set(self.pos)):
-            logging.info('Snake ate itself')
+            self.log.info(f'({self.mv_cnt}) Snake ate itself')
             return True
         return False
 
-    def slither(self, delta_x=0, delta_y=0):
+    def eat_food(self):
+        self.log.info(f'({self.mv_cnt}) Eating food')
+        self.pos.add_cappacity(1)
+        self.board.color = config.background_color
+
+    def slither(self, delta):
         '''
         Slither (delta_x, delta_y) to the next position
 
@@ -56,14 +65,13 @@ class Player(snake.Snake):
         '''
 
         head_pos = self.head()
-        next_pos = (head_pos[0] + delta_x, head_pos[1] + delta_y)
+        next_pos = (head_pos[0] + delta[0], head_pos[1] + delta[1])
 
-        logging.debug(f'Slithering from {head_pos} to {next_pos}')
+        self.log.debug(f'({self.mv_cnt}) Moving from {head_pos} to {next_pos}')
 
         try:
             if self.board[next_pos].color == config.food_color:
-                self.pos.add_cappacity(1)
-                self.board.color = config.background_color
+                self.eat_food()
         except IndexError:
             pass
 
@@ -78,23 +86,25 @@ class Player(snake.Snake):
         left or right relative to the snake's head)
         '''
 
+        self.mv_cnt += 1    # increment for logging
+
         if self.last_key is None:
             return
         elif self.last_key == self.deactiv_key:
             self.last_key = get_inverted_key(self.deactiv_key, self.controls)
 
-        if self.last_key == self.controls['down']:
-            self.slither(delta_y=1)
-            self.deactiv_key = self.controls['up']
-        elif self.last_key == self.controls['up']:
-            self.slither(delta_y=-1)
-            self.deactiv_key = self.controls['down']
-        elif self.last_key == self.controls['right']:
-            self.slither(delta_x=1)
-            self.deactiv_key = self.controls['left']
-        elif self.last_key == self.controls['left']:
-            self.slither(delta_x=-1)
-            self.deactiv_key = self.controls['right']
+        # Map controls to a (position delta, deactive key)
+        control_map = {
+            self.controls['down']:  ((0, 1), self.controls['up']),
+            self.controls['up']:    ((0, -1), self.controls['down']),
+            self.controls['left']:  ((-1, 0), self.controls['right']),
+            self.controls['right']: ((1, 0), self.controls['left'])
+        }
+
+        delta, deactivated_key = control_map[self.last_key]
+
+        self.slither(delta)
+        self.deactiv_key = deactivated_key
 
     def draw(self, screen):
         for pos in self.__iter__():
@@ -110,7 +120,7 @@ class HumanPlayer(Player):
         event = kwargs.get('event', None)
 
         if event is None:
-            logging.debug('No events passed to HumanPlayer')
+            self.log.debug(f'({self.mv_cnt}) No events passed to HumanPlayer')
             return
 
         keypress = event.type == pygame.KEYDOWN
@@ -145,33 +155,44 @@ class AIPlayer(Player):
         '''Calculate the delta to move from point a to b'''
         return (b[0] - a[0], b[1] - a[1]) 
 
-    def react_to(self, **kwargs):
-        logging.debug(f'Current Position: {self.head()}')
+    def eat_food(self):
+        super().eat_food()
+        self.log.debug(f'({self.mv_cnt}) Resetting path step')
+        self.path_step = None
 
+    def react_to(self, **kwargs):
+        self.log.debug(f'({self.mv_cnt}) Current Position: {self.head()}')
+
+        # Path step missing -> find new path
         if self.path_step is None:
             food = self.find_food()
             if food is None:
-                logging.debug('No food on board')
+                self.log.debug(f'({self.mv_cnt}) No food on board')
                 return
 
             self.path = self.find_path(food)
             self.path_step = 0
         else:
+            # Otherwise increment path step
             self.path_step += 1
 
+        # Log Current Path
+        self.log.debug(f'({self.mv_cnt}) Current Path [{self.path_step}/{len(self.path)}]: {self.path}')
+
+        # If path is missing or no step to take -> report no decision
         if self.path is None or len(self.path) <= 1:
-            logging.debug(f'No decision for path: {self.path}')
+            self.log.debug(f'({self.mv_cnt}) No decision')
             return
 
-        logging.debug(f'Current Path [{self.path_step}/{len(self.path)}]: {self.path}')
-
+        # If still steps to take -> take step
         if self.path_step < len(self.path) - 1:
             i = self.path_step
             delta = self.get_delta(self.path[i], self.path[i+1])
-            logging.debug(f'Delta ({self.delta_mapping[delta]}): {delta} = {self.path[i+1]} - {self.path[i]}')
+            self.log.debug(f'({self.mv_cnt}) Delta ({self.delta_mapping[delta]}): {delta} = {self.path[i+1]} - {self.path[i]}')
             self.last_key = self.get_key(delta)
         else:
-            self.path_step = None    
+            # Otherwise reset path step -> calculate new step on next loop
+            self.log.warn(f'({self.mv_cnt}) No steps left to take')
 
     def find_path(self, target_node):
         '''
