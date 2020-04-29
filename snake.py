@@ -1,8 +1,8 @@
 import config
 
 
-class FixedList(object):
-    '''A list of fixed capacity'''
+class FIFOQueue(object):
+    '''A First-in First-out priority Queue of fixed capacity'''
     def __init__(self, *args, capacity: int):
         self._data = list(args)
         self.set_capacity(capacity)
@@ -77,7 +77,7 @@ class FixedList(object):
 
 class Snake(object):
     def __init__(self, pos):
-        self.pos = FixedList(*pos, capacity=len(pos))
+        self.pos = FIFOQueue(*pos, capacity=len(pos))
         self.head_color = config.snake_head_color
         self.color = config.snake_color
 
